@@ -55,39 +55,6 @@ def eff_curve(data, A = 1 , V_ind = 0, T_ind = 1, C_ind = 2, PMTu_ind = 3, PMTd_
     
     return HV, eff, eff_err, C_fake
 
-def plotting(x, y, y_err, titolo, format = '.', capsize = 3):
-    
-    """_summary_
-    
-    Plotting function, it basically just plots the efficency curve.
-    
-    Args:
-        x(ndarray) : array on x axis.
-        y(ndarray) : array on y axis. Must match x shape obv.
-        y_err(ndarray) : array of y_err. Must match y shape, that means it mst match x shape, obv.
-        titolo(str) : just a title for the plot, later assumed to be file name
-        format(str) : point format. '.' is the one I like the most :).
-        capsize(float) : selfexplainatory. 3 is the one I like the most :).
-
-    Returns:
-        fig(figure) : figure that represents the efficency curve.
-        ax(axis) : axis object of fig.
-    """
-
-    fig, ax = plt.subplots()
-    
-    ax.errorbar(x, y, y_err, fmt = format , capsize = capsize)
-    
-    ax.grid(True)
-    
-    ax.set_xlabel('HV [kV]')
-    
-    ax.set_ylabel('Efficency [Pure]')
-    
-    ax.set_title(titolo)
-    
-    return fig, ax
-
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description = "This program accepts a path to a folder, it estimates efficency and associated error, and plots efficency as a function of HV")
@@ -100,13 +67,34 @@ if __name__ == "__main__":
 
     files = glob.glob(os.path.join(folder, "PMT*.txt"))
 
-    A = {"PMT01": 1, "PMT02" : 0.4, "PMT04" : 1 , "PMT07" : 0.5 , "PMTOR" : 1}
+    A = {"PMT01": 1, "PMT02" : 0.4, "PMT04" : 1 , "PMT07" : 0.5 , "PMT08" : 1, "PMT09" : 1, "PMT10" : 1, "PMT11" : 1,"PMTOR" : 1}
+    
+    fig, ax = plt.subplots()
+    
+    ax.set_xlabel('HV [kV]')
+    
+    ax.set_ylabel('Efficiency [Pure]')
+    
+    ax.grid(True)
+    
+    labels = []
 
     for f in files:
         title = os.path.splitext(os.path.basename(f))[0]
+        
         HV, eff, err, C_fake = eff_curve(np.loadtxt(f), A[title])
-        fig, ax = plotting(HV, eff, err, title)
-        plt.savefig(title+"EffCurve")
-        plt.show()
+        
+        ax.errorbar(HV, eff, err, fmt = '.' , capsize = 3)
+        
+        labels += [title]
+        
+    ax.legend(labels)
     
+    folder_name = os.path.basename(os.path.normpath(folder))
+    
+    ax.set_title(f'Efficiency Curves - {folder_name}')
+    
+    plt.savefig(f'Efficiency Curves - {folder_name}')
+    
+    plt.show()
     
