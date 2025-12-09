@@ -11,6 +11,7 @@
 #include "TF1.h"
 #include "TStyle.h"
 #include "TFile.h"
+#include <TLegend.h>
 
 // =====================================================================
 //                    COSTANTI HARDWARE / DECODIFICA
@@ -434,10 +435,71 @@ void Mu_life_new(const char* filename = "FIFOread_Take5.txt",
     std::cout << "B (fondo)= " << B    << " ± " << eB   << " counts/bin\n";
     std::cout << "==============================================\n";
 
-    TCanvas* c1 = new TCanvas("c1", "Muon lifetime", 800, 600);
+    TCanvas* c1 = new TCanvas("c1", "Muon lifetime", 1000, 700);
     hDecay->Draw();
     fExpBkg->Draw("same");
     //c1->SaveAs("Mu_life_new_1.png");
+    TLegend *leg = new TLegend(0.3, 0.80, 0.5, 0.90);
+    leg->SetBorderSize(1);
+    leg->SetFillStyle(0);
+    leg->AddEntry((TObject*)0,
+                  Form("[%.3f, %.3f] #mus", tmin, tmax),
+                  "");
+    leg->AddEntry((TObject*)0,
+                  Form("Bins: %d", nbins),
+                  "");
+    leg->Draw();
+
+    TString outName;
+    outName.Form("mu_decay_fit_%.3f_%.3f_%d_bins.png", tmin, tmax, nbins);
+    //outName.ReplaceAll(".", "p"); // evita i punti nel nome file
+    c1->SaveAs(outName.Data());
+
+    // fit con doppio esponenziale per trovare rapporto popolazioni
+    
+    float tau_meno = 2.043; //vita media mu-
+    float tau_plus;
+    tau_plus = 2*tau - tau_meno;
+
+    TF1* fExpSum = new TF1("fExpSum",
+                           Form("[0]*exp(-x/%f) + [1]*exp(-x/%f) + [2]", tau_meno, tau_plus),
+                           tmin, tmax);
+    fExpSum->SetParNames("N-", "N+", "C");
+
+    // Stime iniziali
+    fExpSum->SetParameter(0, hDecay->GetMaximum()*0.5);
+    fExpSum->SetParameter(1, hDecay->GetMaximum()*0.5);
+    fExpSum->SetParameter(2, bkgGuess);
+
+    hDecay->Fit(fExpSum, "LIR+");
+    double N_minus    = fExpSum->GetParameter(0);
+    double eN_minus   = fExpSum->GetParError(0);
+    double N_plus  = fExpSum->GetParameter(1);
+    double eN_plus = fExpSum->GetParError(1);
+    double B_1=      fExpSum->GetParameter(2);
+    double errorB_1 = fExpSum->GetParError(2); 
+
+    double abb;
+    double error_abb;
+    abb = N_plus / N_minus;
+    error_abb = (N_plus / N_minus) * sqrt( pow((eN_plus / N_plus),2) + pow((eN_minus / N_minus ),2) );
+
+    std::cout << "\n================ RISULTATI FIT ================\n";
+    std::cout << "N_minus  = " << N_minus  << " ± " << eN_minus << " \n";
+    std::cout << "N_minus  = " << N_plus  << " ± " << eN_plus << " \n";
+    std::cout << "B_1 (fondo)= " << B_1    << " ± " << errorB_1   << " counts/bin\n";
+    std::cout << "abbondanze  = " << abb  << " ± " << error_abb << " \n";
+    std::cout << "==============================================\n";
+
+
+
+
+    //abilito o meno i subplot dei vari PMT8,9,10,11
+    char choice_subplot;
+    std::cout << "Vuoi vedere i subplot PMT8,9,10,11?S/N   ";
+    std:: cin >> choice_subplot;
+
+    if(choice_subplot == 'S'){
 
     // Canvas per i singoli PMT (solo istogrammi, senza fit)
     TCanvas* c2 = new TCanvas("c2", "Muon lifetime - stop PMT 8", 800, 600);
@@ -451,6 +513,11 @@ void Mu_life_new(const char* filename = "FIFOread_Take5.txt",
 
     TCanvas* c5 = new TCanvas("c5", "Muon lifetime - stop PMT 11", 800, 600);
     hDecay_B11->Draw();
+    c2->Write();
+    c3->Write();
+    c4->Write();
+    c5->Write();
+}
 
     TFile* fout = new TFile("Mu_life_new.root", "RECREATE");
     hDecay->Write();
@@ -460,10 +527,6 @@ void Mu_life_new(const char* filename = "FIFOread_Take5.txt",
     hDecay_B11->Write();
     fExpBkg->Write();
     c1->Write();
-    c2->Write();
-    c3->Write();
-    c4->Write();
-    c5->Write();
     fout->Close();
 
     std::cout << "[INFO] Risultati salvati in Mu_life_new.root\n";
