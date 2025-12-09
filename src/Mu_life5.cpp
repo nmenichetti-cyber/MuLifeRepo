@@ -366,6 +366,7 @@ void Mu_life_new(const char* filename = "FIFOread_Take5.txt",
                             "Muon decay time; t_{decay} [#mu s]; Counts",
                             nbins, tmin, tmax);
 
+
     // Istogrammi separati per i diversi PMT del blocco
     TH1F* hDecay_B8  = new TH1F("hDecay_B8",
                                 "Muon decay time (stop PMT 8); t_{decay} [#mu s]; Counts",
