@@ -12,6 +12,8 @@
 #include "TStyle.h"
 #include "TFile.h"
 #include <TLegend.h>
+#include "TMath.h"
+
 
 // =====================================================================
 //                    COSTANTI HARDWARE / DECODIFICA
@@ -365,6 +367,7 @@ void Mu_life_new(const char* filename = "FIFOread_Take5.txt",
                             "Muon decay time; t_{decay} [#mu s]; Counts",
                             nbins, tmin, tmax);
 
+
     // Istogrammi separati per i diversi PMT del blocco
     TH1F* hDecay_B8  = new TH1F("hDecay_B8",
                                 "Muon decay time (stop PMT 8); t_{decay} [#mu s]; Counts",
@@ -471,7 +474,10 @@ void Mu_life_new(const char* filename = "FIFOread_Take5.txt",
     fExpSum->SetParameter(1, hDecay->GetMaximum()*0.5);
     fExpSum->SetParameter(2, bkgGuess);
 
+
     hDecay->Fit(fExpSum, "LIR+");
+
+    TFitResultPtr result = hDecay->Fit(fExpSum, "LISR+");
     double N_minus    = fExpSum->GetParameter(0);
     double eN_minus   = fExpSum->GetParError(0);
     double N_plus  = fExpSum->GetParameter(1);
@@ -484,14 +490,21 @@ void Mu_life_new(const char* filename = "FIFOread_Take5.txt",
     abb = N_plus / N_minus;
     error_abb = (N_plus / N_minus) * sqrt( pow((eN_plus / N_plus),2) + pow((eN_minus / N_minus ),2) );
 
+    double Cov01 = result->CovMatrix(0, 1);
+
+    std:: cout<< Cov01 <<endl;
+    double abb = N_plus / N_minus;
+    double error_abb = sqrt( (eN_plus*eN_plus)/(N_plus*N_plus)
+                + (N_plus*N_plus)*(eN_minus*eN_minus)/(N_minus*N_minus*N_minus*N_minus)
+                - 2.0*N_plus*Cov01/(N_minus*N_minus*N_minus));
+
+
     std::cout << "\n================ RISULTATI FIT ================\n";
     std::cout << "N_minus  = " << N_minus  << " ± " << eN_minus << " \n";
     std::cout << "N_minus  = " << N_plus  << " ± " << eN_plus << " \n";
     std::cout << "B_1 (fondo)= " << B_1    << " ± " << errorB_1   << " counts/bin\n";
     std::cout << "abbondanze  = " << abb  << " ± " << error_abb << " \n";
     std::cout << "==============================================\n";
-
-
 
 
     //abilito o meno i subplot dei vari PMT8,9,10,11
