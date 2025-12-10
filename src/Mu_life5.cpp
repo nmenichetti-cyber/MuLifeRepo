@@ -14,6 +14,7 @@
 #include <TLegend.h>
 #include "TMath.h"
 
+
 // =====================================================================
 //                    COSTANTI HARDWARE / DECODIFICA
 // =====================================================================
@@ -473,6 +474,9 @@ void Mu_life_new(const char* filename = "FIFOread_Take5.txt",
     fExpSum->SetParameter(1, hDecay->GetMaximum()*0.5);
     fExpSum->SetParameter(2, bkgGuess);
 
+
+    hDecay->Fit(fExpSum, "LIR+");
+
     TFitResultPtr result = hDecay->Fit(fExpSum, "LISR+");
     double N_minus    = fExpSum->GetParameter(0);
     double eN_minus   = fExpSum->GetParError(0);
@@ -480,6 +484,11 @@ void Mu_life_new(const char* filename = "FIFOread_Take5.txt",
     double eN_plus = fExpSum->GetParError(1);
     double B_1=      fExpSum->GetParameter(2);
     double errorB_1 = fExpSum->GetParError(2); 
+
+    double abb;
+    double error_abb;
+    abb = N_plus / N_minus;
+    error_abb = (N_plus / N_minus) * sqrt( pow((eN_plus / N_plus),2) + pow((eN_minus / N_minus ),2) );
 
     double Cov01 = result->CovMatrix(0, 1);
 
@@ -489,12 +498,14 @@ void Mu_life_new(const char* filename = "FIFOread_Take5.txt",
                 + (N_plus*N_plus)*(eN_minus*eN_minus)/(N_minus*N_minus*N_minus*N_minus)
                 - 2.0*N_plus*Cov01/(N_minus*N_minus*N_minus));
 
+
     std::cout << "\n================ RISULTATI FIT ================\n";
     std::cout << "N_minus  = " << N_minus  << " ± " << eN_minus << " \n";
     std::cout << "N_minus  = " << N_plus  << " ± " << eN_plus << " \n";
     std::cout << "B_1 (fondo)= " << B_1    << " ± " << errorB_1   << " counts/bin\n";
     std::cout << "abbondanze  = " << abb  << " ± " << error_abb << " \n";
     std::cout << "==============================================\n";
+
 
     //abilito o meno i subplot dei vari PMT8,9,10,11
     char choice_subplot;
