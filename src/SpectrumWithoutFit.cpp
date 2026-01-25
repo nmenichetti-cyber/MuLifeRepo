@@ -6,7 +6,6 @@
 #include <sstream>
 #include <string>
 #include <vector>
-#include <chrono>
 
 #include <TROOT.h>
 #include <TGraph.h>
@@ -14,7 +13,7 @@
 #include <TH1D.h>
 #include <TCanvas.h>
 
-//I dati da usare sono nella cartella WavedumpDec10, non la carico su GitHub perché è troppo pesante
+//I dati da usare sono nella cartella WavedumpFinal, non la carico su GitHub perché è troppo pesante
 
 struct EventWave {
     int eventNumber = -1;
@@ -26,199 +25,126 @@ struct MultiChannelEvent {
     std::vector<double> sum;
 };
 
-std::map<int, EventWave> ReadWaveFile(const std::string &fname)
-{
-    std::ifstream in(fname);
-    if (!in.is_open()) {
-        std::cerr << "Impossibile aprire " << fname << std::endl;
-        return {};
-    }
+bool CreateEvent(std::ifstream& in, EventWave& ev){
 
-    std::map<int, EventWave> events;
+    ev.ch.clear();
     std::string line;
-    EventWave *currentWave = nullptr;
 
+    // Numero associazione al numero dell'evento, se il file non è importato da false
     while (std::getline(in, line)) {
-        if (line.empty()) continue;
+        if (line.find("Event Number") != std::string::npos) {
+            ev.eventNumber = std::stoi(line.substr(line.find(':') + 1));
+            break;
+        }
+    }
+    if (!in) return false;
+
+    // Legge i campioni finché non trova il prossimo evento
+    std::streampos lastPos;
+    while (true) {
+        lastPos = in.tellg();
+
+        //Se non trovi una riga testuale, fermati;
+
+        if (!std::getline(in, line)) break;
+
+        //Se trovi l'header, fermati;
 
         if (line.find("Event Number") != std::string::npos) {
-            size_t pos = line.find(':');
-            if (pos != std::string::npos) {
-                int ev = std::stoi(line.substr(pos + 1));
-                EventWave &ew = events[ev];
-                ew.eventNumber = ev;
-                ew.ch.clear();
-                currentWave = &ew;
-            }
-            continue;
+            in.seekg(lastPos);  
+            break;
         }
 
-        if (!currentWave) continue;
+        //Se è vuota, fermati;
 
-        if ((line[0] >= '0' && line[0] <= '9') || line[0] == '-') {
-            unsigned int adc;
-            std::stringstream ss(line);
-            ss >> adc;
-            currentWave->ch.push_back(static_cast<unsigned short>(adc));
-        }
+        if (line.empty()) continue;
+
+        //Se c'è un numero, lo salvi nell'attributo ch;
+
+        unsigned int adc;
+        std::stringstream ss(line);
+        if (ss >> adc)
+            ev.ch.push_back(static_cast<unsigned short>(adc));
+    }
+    return true;
+}
+
+
+void AnalyzeEvent(const std::vector<double>& wave, TH1D* h, double thr = 200)
+{
+    int N = wave.size();
+
+    static std::vector<double> dwave;
+    static std::vector<double> dwave_smooth;
+
+    dwave.clear();
+    dwave.reserve(N);
+
+    // Derivata discreta
+    for (int j = 1; j < N - 1; ++j)
+        dwave.push_back((wave[j + 1] - wave[j - 1]) / 2.0);
+
+    dwave_smooth.assign(dwave.size(), 0.0);
+
+    // Smoothing semplice, ripulisce da picchi spuri in derivata
+    for (size_t i = 1; i + 1 < dwave.size(); ++i) {
+        double s = dwave[i - 1] + dwave[i] + dwave[i + 1];
+        dwave_smooth[i] = std::abs(s / 3.0);
     }
 
-    return events;
+    // Primo fronte, cerco massimo assoluto
+    auto it1 = std::max_element(dwave_smooth.begin(), dwave_smooth.end());
+    if (*it1 < thr) return;
+
+    int bl_ind = std::distance(dwave_smooth.begin(), it1);
+
+    // Secondo fronte, cerco un massimo assoluto successivo
+    int minDist = 20;
+    if (bl_ind + minDist >= (int)dwave_smooth.size()) return;
+
+    auto it2 = std::max_element(dwave_smooth.begin() + bl_ind + minDist, dwave_smooth.end());
+    if (*it2 < thr) return;
+
+    double c = 0.0564706;
+
+    h->Fill((*it2) * c);
 }
 
-void AnalyzeEnergies(const std::map<int, MultiChannelEvent> &merged, double thr = 1)
+void WaveAnalysis(const char* f0name, const char* f1name, const char* f2name, const char* f3name, double thr = 200)
 {
-    if (merged.empty()) return;
+    std::ifstream f0(f0name), f1(f1name), f2(f2name), f3(f3name);
 
-    //Inizializzo istogramma
-
-    TH1D *h = new TH1D("hAmp2", "Electron energy", 100, 0, 150);
-    TGraph g;
-
-    //Loop for prima importo il vettore delle somme contenuto in emrged (un MultiChannelEvent) e poi il numero di punti
-
-    int counter = 0;
-
-    for (const auto &kv : merged) {
-        const auto &wave = kv.second.sum;
-        int N = wave.size();
-        if (N < 50) continue;
-
-        int j = 1;
-
-        //Faccio la derivata discreta
-
-        vector<double> dwave;
-
-        while (j < N-2) {
-
-            double d = (wave[j+1]-wave[j-1])/2;
-            dwave.push_back(d);
-            j++;
-
-        }
-
-        //Medio per evitare picchi spuri nella derivata
-
-        vector<double> dwave_smooth(dwave.size(),0);
-        
-        for (size_t i=3; i<dwave.size()-3;i++){
-            double sum = 0;
-            for (int k=-1; k<=1; k++) {sum += dwave[i+k];};
-            dwave_smooth[i] = sum/3;
-        }
-
-        //Ora cerco i massimi, e salvo gli indici in un vettore
-
-        vector<int> pks; 
-
-        for (size_t l=1; l<dwave.size()-2; l++){
-            if (std::abs(dwave_smooth[l])>thr && 
-                std::abs(dwave_smooth[l]) > std::abs(dwave_smooth[l-1]) && 
-                std::abs(dwave_smooth[l]) > abs(dwave_smooth[l+1])){pks.push_back(l+1);}
-        }
-        
-        if (pks.size() >= 2){
-            h->Fill(abs(wave[pks[1]]-wave[pks[0]]));
-            counter++;
-        }
-
-                // --- Canvas per waveform originale ---
-        //std::string canvasNameWave = "cWave_" + std::to_string(kv.first);
-        //std::string canvasTitleWave = "Waveform Event " + std::to_string(kv.first);
-        //TCanvas *cWave = new TCanvas(canvasNameWave.c_str(), canvasTitleWave.c_str(), 800, 400);
-
-        //TGraph *grWave = new TGraph(wave.size(), wave.data());
-        //grWave->SetLineColor(kBlack);
-        //grWave->SetTitle(("Waveform Event " + std::to_string(kv.first)).c_str());
-        //grWave->GetXaxis()->SetTitle("Campione");
-        //grWave->GetYaxis()->SetTitle("ADC / MeV");
-        //grWave->Draw("AL");
-
-        // --- Canvas separato per derivata smussata ---
-        //std::string canvasNameDeriv = "cDeriv_" + std::to_string(kv.first);
-        //std::string canvasTitleDeriv = "Derivata Event " + std::to_string(kv.first);
-        //TCanvas *cDeriv = new TCanvas(canvasNameDeriv.c_str(), canvasTitleDeriv.c_str(), 800, 400);
-
-        //TGraph *grD = new TGraph(dwave_smooth.size(), dwave_smooth.data());
-        //grD->SetLineColor(kRed);
-        //grD->SetTitle(("Derivata Smussata Event " + std::to_string(kv.first)).c_str());
-        //grD->GetXaxis()->SetTitle("Campione");
-        //grD->GetYaxis()->SetTitle("d(ADC)/dC");
-        //grD->Draw("AL");
-
-        // --- opzionale: picchi sulla derivata ---
-        //for (int idx : pks) {
-        //    TLine *l = new TLine(idx, 0, idx, dwave_smooth[idx]);
-        //    l->SetLineColor(kBlue);
-        //    l->SetLineStyle(2);
-        //    l->Draw();
-        //}
-
-        // Aggiorna canvas
-        //cWave->Update();
-        //cDeriv->Update();
-
-        // --- Pausa interattiva ---
-        //std::cout << "Premi Invio per vedere il prossimo evento...\n";
-        //std::cin.get();
-
-        // --- Chiudi canvas prima di passare al prossimo evento ---
-        //cWave->Close();
-        //cDeriv->Close();
-
-        // --- opzionale: libera memoria per i grafici ---
-        //delete grWave;
-        //delete grD;
-}
-
-TCanvas *c = new TCanvas("cAmp2","Electron energy spectrum",800,600);
-h->GetXaxis()->SetTitle("Electron energy [MeV]");
-h->GetYaxis()->SetTitle("Counts [pure]");
-h->Draw();
-cout << counter << endl;
-
-}
-
-void WaveAnalysis(const char* f0, const char* f1, const char* f2, const char* f3, double thr = 0.4)
-{
-    auto t0 = std::chrono::high_resolution_clock::now();
-
-    auto e0 = ReadWaveFile(f0);
-    auto e1 = ReadWaveFile(f1);
-    auto e2 = ReadWaveFile(f2);
-    auto e3 = ReadWaveFile(f3);
-
-    std::vector<double> calib = {13.7, 10.7, 10.4, 10.5}; 
-
-    std::map<int, MultiChannelEvent> merged;
-
-    for (const auto &kv : e0) {
-        int ev = kv.first;
-        if (!e1.count(ev) || !e2.count(ev) || !e3.count(ev)) continue;
-
-        const auto &w0 = e0[ev].ch;
-        const auto &w1 = e1[ev].ch;
-        const auto &w2 = e2[ev].ch;
-        const auto &w3 = e3[ev].ch;
-
-        size_t N = std::min({w0.size(), w1.size(), w2.size(), w3.size()});
-        MultiChannelEvent m;
-        m.eventNumber = ev;
-        m.sum.resize(N);
-
-        for (size_t i=0; i<N; i++)
-            m.sum[i] = (calib[0]*w0[i] + calib[1]*w1[i] + calib[2]*w2[i] + calib[3]*w3[i]) * 1e-3;
-
-        merged[ev] = std::move(m);
+    //Controllo di import
+    if (!f0 || !f1 || !f2 || !f3) {
+        std::cerr << "Errore apertura file\n";
+        return;
     }
 
-    std::cout << "Eventi combinati: " << merged.size() << "\n";
+    //Creo Evento e istogramma
 
-    AnalyzeEnergies(merged, thr);
+    EventWave w0, w1, w2, w3;
 
-    auto t1 = std::chrono::high_resolution_clock::now();
-    std::cout << "Tempo totale: " 
-              << std::chrono::duration<double>(t1-t0).count() 
-              << " s\n";
+    TH1D* h = new TH1D("hAmp2", "Electron energy", 100, 0, 70);
+
+    int nev = 0;
+
+    while ( CreateEvent(f0, w0) && CreateEvent(f1, w1) && CreateEvent(f2, w2) && CreateEvent(f3, w3) ) {
+
+        size_t N = std::min({ w0.ch.size(), w1.ch.size(), w2.ch.size(), w3.ch.size() });
+
+        static std::vector<double> sum;
+        sum.resize(N);
+
+        for (size_t i = 0; i < N; ++i) {sum[i] = w0.ch[i] + w1.ch[i] + w2.ch[i] + w3.ch[i];}
+
+        AnalyzeEvent(sum, h, thr);
+        ++nev;
+    }
+
+    std::cout << "Eventi analizzati: " << nev << "\n";
+
+    TCanvas* c = new TCanvas("cAmp2", "Electron energy spectrum", 800, 600);
+    h->GetXaxis()->SetTitle("Electron energy [MeV]");
+    h->GetYaxis()->SetTitle("Counts");
+    h->Draw();
 }
